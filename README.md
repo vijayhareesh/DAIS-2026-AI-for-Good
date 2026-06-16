@@ -1,7 +1,8 @@
 # HealthVerify India - DAIS 2026 AI for Good
 
 **Hackathon:** Databricks Apps & Agents for Good 2026  
-**Team:** [Your Team Name]
+**Team:** [Your Team Name]  
+**Track:** Facility Trust Desk (Track 1)
 
 ---
 
@@ -13,9 +14,9 @@ End-to-end system ensuring patients find trustworthy healthcare facilities throu
 
 India has 10,000+ healthcare facilities with self-reported capabilities, specialties, and contact information. Current data quality issues:
 
-* **83% lack reliable freshness data** (64.5% have no update date, 18.2% are stale or aging)
-* **Only 17.3% are recently validated as "FRESH"**
-* **Over 8,200 facilities** need verification or re-verification
+* **64.9% have missing validation dates** (6,461 facilities with NO_DATE)
+* **Only 15.4% are HIGH_RELIABILITY** (1,542 facilities)
+* **685 facilities (6.8%) are UNRELIABLE** and hidden from patient search
 * No verification mechanism for patients to trust the information
 
 ### Real-World Impact
@@ -23,6 +24,7 @@ India has 10,000+ healthcare facilities with self-reported capabilities, special
 * Patients waste time and money traveling to facilities that don't have claimed capabilities
 * Emergency cases risk dangerous delays when directed to inadequate facilities
 * Legitimate facilities lose trust due to ecosystem-wide data quality issues
+* **685 facilities currently hidden from search** to protect patients from unreliable data
 
 ---
 
@@ -49,6 +51,7 @@ Databricks App with dual interfaces:
 1. **Start with Phase 1:** [Pipeline Implementation](./phase-1-pipeline/)
 2. **Once pipeline completes:** [App Implementation](./phase-2-app/)
 3. **Review design:** [HealthVerify India Design](./docs/design/2026-06-15-healthverify-india-design.md)
+4. **Prepare for demo:** [Demo Script](./DEMO-SCRIPT.md) ⭐
 
 ### Local Verification
 
@@ -66,8 +69,10 @@ The `DATABRICKS_AUTH_STORAGE=plaintext` prefix is currently required for this wo
 
 * **Catalog:** `dais2026`
 * **Schemas:** `raw`, `virtue_foundation_cleaned`, `validation`
-* **Total Facilities:** 10,088
-* **Validation Scores:** 9,973 facilities scored
+* **Total Facilities:** 10,039
+* **Validation Scores:** 10,039 facilities scored
+* **States Covered:** 236
+* **Cities Covered:** 1,629
 
 ---
 
@@ -95,7 +100,8 @@ Known data quality issues and remediation strategies:
 - [x] Deterministic demo agents and trust-score core (`phase_2_app/`)
 - [x] Streamlit Databricks App scaffold (`phase-2-app/`)
 - [x] Lakebase schema and sync scripts (`lakebase/`, `jobs/`, `scripts/`)
-- [ ] Demo preparation
+- [x] Demo script prepared
+- [ ] Demo rehearsal
 
 ### Phase 3: Deployment Assets
 - [x] Databricks Asset Bundle (`databricks.yml`)
@@ -107,17 +113,22 @@ Known data quality issues and remediation strategies:
 
 ## Key Metrics
 
-### Current Data Quality
-* 6,431 facilities with NO_DATE (64.5%)
-* 1,815 facilities STALE or AGING (18.2%)
-* 294 facilities SUSPICIOUS_VOLUME (2.9%)
-* 269 facilities INCOMPLETE_DATA (2.7%)
+### Current Data Quality (from validation.integrated_facility_assessment)
+* 6,461 facilities with NO_DATE (64.9%)
+* 949 facilities STALE_DATA (9.5%)
+* 2,884 facilities DATA_CLIPPED (29.0%)
+* 685 facilities UNRELIABLE_DATA (6.8%)
 
-### Success Criteria (Future)
-* 1,000 volunteers verify entire database in 3 months
-* 95% of facilities have trust score ≥ 0.80
-* Patient satisfaction: 85%+ report finding appropriate care
-* Reduce wasted travel by 40%
+### Trust Score Distribution
+* 1,542 facilities HIGH_RELIABILITY (15.4%) - avg score 0.821
+* 7,809 facilities MODERATE_RELIABILITY (77.8%) - avg score 0.741
+* 685 facilities UNRELIABLE_DATA (6.8%) - avg score 0.604
+
+### Success Criteria (Target)
+* **1,000 volunteers** verify entire database in **3 months** (114 hours for urgent 685)
+* **95% of facilities** have trust score ≥ 0.80
+* **Patient satisfaction:** 85%+ report finding appropriate care
+* **Reduce wasted travel by 40%**
 
 ---
 
@@ -126,6 +137,7 @@ Known data quality issues and remediation strategies:
 ```
 DAIS-2026-AI-for-Good/
 ├── README.md (you are here)
+├── DEMO-SCRIPT.md          # 3-minute hackathon demo script ⭐
 ├── databricks.yml          # Databricks Asset Bundle
 ├── docs/
 │   ├── data-quality/       # Cross-phase data quality findings
@@ -184,7 +196,7 @@ Required evidence before demo:
 * `validation.integrated_facility_assessment` has roughly 10K facilities
 * No null final confidence, data quality, or combined scores
 * Confidence tier distribution is within the expected range
-* Heritage Hospitals demo data is present or seeded into Lakebase
+* Heritage Hospitals demo data matches [DEMO-SCRIPT.md](./DEMO-SCRIPT.md) expectations
 
 ### Lakebase Demo Seed
 
@@ -216,12 +228,23 @@ For app-only rollback, redeploy the previous Git commit with `databricks bundle 
 
 ## Demo Facility Example
 
-**Heritage Hospitals, Varanasi**
-* **Before:** Trust score 0.68 (SUSPICIOUS_VOLUME, STALE) - filtered out from patient results
-* **After volunteer validation:** Trust score 0.88+ (FRESH) - ranks #2 for cardiology
-* **Impact:** Jumps from invisible to top 3 results for patients
+**Heritage Hospitals, Varanasi** (unique_id: `390fa6ee-297f-4063-8fbe-82f5e7db7258`)
 
-This demonstrates how volunteer validation directly protects patients and improves healthcare access.
+* **Before volunteer verification:**
+  * Trust score: **0.45** (UNRELIABLE_DATA)
+  * Red flags: STALE_DATA, OVERCLAIMING, DATA_CLIPPED
+  * Status: ❌ **HIDDEN from patient search results**
+  * Impact: Patients searching "cardiac care Varanasi" cannot find this facility
+
+* **After volunteer verification:**
+  * Trust score: **0.88** (HIGH_RELIABILITY)
+  * Red flags: None (FRESH data, verified claims)
+  * Status: ✅ **VISIBLE in search results** - ranked #11 for cardiac care
+  * Impact: Patients find trusted care 2km from home instead of traveling 50km
+
+This demonstrates how volunteer validation with AI-generated verification scripts directly protects patients and improves healthcare access.
+
+**For complete demo flow and judging presentation:** See [DEMO-SCRIPT.md](./DEMO-SCRIPT.md)
 
 ---
 

@@ -1,0 +1,95 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                   LAKEBASE INTEGRATION - READY TO DEPLOY                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+✅ COMPLETED (All App Code Updated)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ✓ LakebaseStore created (queries Postgres for 10K+ facilities)
+ ✓ Factory function added (auto-switches demo/production mode)
+ ✓ app.yaml configured (database resource + HEALTHVERIFY_MODE=production)
+ ✓ All 3 pages updated (app.py, Volunteer Portal, Patient Search)
+ ✓ requirements.txt updated (psycopg3 + databricks-sdk)
+ ✓ Setup script created (lakebase-setup.sh)
+
+⏳ REMAINING (Run in Web Terminal - 15 mins)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 STEP 1: Open Web Terminal
+   Workspace → Compute → Click "Web Terminal" in top-right
+
+🔧 STEP 2: Run Setup Script (automates catalog + synced table creation)
+   cd /Workspace/Users/richthai92@gmail.com/DAIS-2026-AI-for-Good
+   chmod +x lakebase-setup.sh
+   ./lakebase-setup.sh
+
+   This script will:
+   • Register healthverify_lakebase catalog
+   • Create synced table (sync 10,712 facilities)
+   • Monitor sync status (takes 5-10 mins)
+   • Show permission grant commands
+
+🔧 STEP 3: Grant App Permissions (after sync completes)
+   The script will output SQL commands like:
+
+   GRANT USAGE ON SCHEMA public TO "<your-sp-id>";
+   GRANT SELECT ON public.facilities TO "<your-sp-id>";
+   GRANT INSERT, UPDATE, SELECT ON public.volunteer_validations TO "<your-sp-id>";
+
+   Run these via:
+   databricks postgres connect projects/dais2026/branches/production
+
+🔧 STEP 4: Deploy App
+   cd /Workspace/Users/richthai92@gmail.com/DAIS-2026-AI-for-Good/phase-2-app
+   databricks apps get healthverify-india --output JSON
+   # If status.state is not RUNNING, run:
+   databricks apps start healthverify-india --timeout 20m
+   # Then deploy:
+   databricks apps deploy healthverify-india
+
+🔧 STEP 5: Verify
+   Visit: https://healthverify-india-3764736117518957.aws.databricksapps.com
+
+   Expected:
+   ✓ Home page shows real facility with trust score
+   ✓ Volunteer Portal lists 10K+ facilities (not just 3 demo)
+   ✓ Patient Search shows geospatial results
+   ✓ Validations persist across app restarts
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 ARCHITECTURE OVERVIEW
+
+   Lakeflow Pipeline (Gold Layer)
+        ↓ CDF enabled
+   10,712 facilities @ dais2026.dev_validation.integrated_facility_assessment
+        ↓ Lakebase Synced Table (Triggered)
+   Postgres: healthverify_lakebase.public.facilities
+        ↓ psycopg3 queries
+   Streamlit App: healthverify-india
+        • Sub-second facility lookups
+        • Geospatial search (city, trust threshold)
+        • Persistent validation submissions
+        • Real-time trust score updates
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📁 FILES CREATED/MODIFIED
+   • phase-2-app/phase_2_app/lakebase_store.py (NEW - 333 lines)
+   • phase-2-app/phase_2_app/store.py (UPDATED - factory function)
+   • phase-2-app/app.py (UPDATED)
+   • phase-2-app/pages/01_Volunteer_Portal.py (UPDATED)
+   • phase-2-app/pages/02_Patient_Search.py (UPDATED)
+   • phase-2-app/requirements.txt (UPDATED)
+   • phase-2-app/app.yaml (UPDATED - database resource added)
+   • lakebase-setup.sh (NEW - setup automation)
+   • LAKEBASE-INTEGRATION.md (NEW - detailed guide)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🚀 QUICK START
+   Open web terminal and run:
+
+   cd ~/DAIS-2026-AI-for-Good && chmod +x lakebase-setup.sh && ./lakebase-setup.sh
+
+═══════════════════════════════════════════════════════════════════════════════

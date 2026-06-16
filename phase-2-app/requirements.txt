@@ -2,5 +2,6 @@ streamlit>=1.38
 folium>=0.17
 streamlit-folium>=0.22
 pandas>=2.2
-psycopg2-binary>=2.9
+psycopg[binary]>=3.1
+databricks-sdk>=0.81.0
 mlflow>=2.16
