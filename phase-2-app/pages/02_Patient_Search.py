@@ -12,25 +12,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from phase_2_app.agents import match_symptoms
-from phase_2_app.store import DemoStore
+from phase_2_app.store import create_store
 from phase_2_app.trust import PATIENT_TRUST_THRESHOLD
 
 try:
     import folium
     from streamlit_folium import st_folium
-except ImportError:  # pragma: no cover - exercised only in minimal local envs.
+except ImportError:
     folium = None
     st_folium = None
 
 
-CITY_COORDS = {
-    "Varanasi": (25.3176, 82.9739),
-}
-
-
-def get_store() -> DemoStore:
+def get_store():
     if "healthverify_store" not in st.session_state:
-        st.session_state.healthverify_store = DemoStore.seeded()
+        st.session_state.healthverify_store = create_store()
     return st.session_state.healthverify_store
 
 
@@ -60,26 +55,23 @@ st.title("Patient Search")
 
 store = get_store()
 symptoms = st.text_area("Describe symptoms or care needed", value="Heart pain, trouble breathing")
-city = st.selectbox("Location", sorted(CITY_COORDS), index=0)
+city = st.text_input("City", value="")
 
 if st.button("Find Care", type="primary"):
     st.session_state.patient_search_submitted = True
 
 if st.session_state.get("patient_search_submitted", True):
     match = match_symptoms(symptoms)
-    origin = CITY_COORDS[city]
+    
+    # Search facilities by city
     candidates = [
         facility
-        for facility in store.list_facilities()
-        if facility.city == city and facility.trust_score >= PATIENT_TRUST_THRESHOLD
+        for facility in store.search_facilities(text="", city=city if city else None, limit=100)
+        if facility.trust_score >= PATIENT_TRUST_THRESHOLD
     ]
-    ranked = sorted(
-        candidates,
-        key=lambda facility: (
-            -facility.trust_score,
-            distance_km(origin[0], origin[1], facility.latitude, facility.longitude),
-        ),
-    )
+    
+    # Sort by trust score (distance requires valid lat/lon)
+    ranked = sorted(candidates, key=lambda f: -f.trust_score)
 
     st.caption(
         "Matched specialties: "
@@ -90,29 +82,34 @@ if st.session_state.get("patient_search_submitted", True):
 
     map_col, results_col = st.columns([0.6, 0.4])
     with map_col:
-        if folium and st_folium:
-            fmap = folium.Map(location=origin, zoom_start=13)
-            for facility in store.list_facilities():
-                color = marker_color(facility.trust_score)
-                popup = f"{facility.facility_name} ({facility.trust_score:.3f})"
-                folium.Marker(
-                    location=(facility.latitude, facility.longitude),
-                    popup=popup,
-                    icon=folium.Icon(color=color),
-                ).add_to(fmap)
+        if folium and st_folium and ranked and ranked[0].latitude and ranked[0].longitude:
+            # Center on first result
+            center = (ranked[0].latitude, ranked[0].longitude)
+            fmap = folium.Map(location=center, zoom_start=12)
+            
+            for facility in ranked[:20]:  # Show top 20 on map
+                if facility.latitude and facility.longitude:
+                    color = marker_color(facility.trust_score)
+                    popup = f"{facility.facility_name} ({facility.trust_score:.3f})"
+                    folium.Marker(
+                        location=(facility.latitude, facility.longitude),
+                        popup=popup,
+                        icon=folium.Icon(color=color),
+                    ).add_to(fmap)
             st_folium(fmap, height=520, use_container_width=True)
         else:
-            st.info("Map libraries are optional locally. Databricks app installs Folium.")
+            st.info("Map requires valid facility coordinates. Search for facilities with location data.")
 
     with results_col:
-        st.subheader(f"Top Matches ({len(ranked)})")
+        st.subheader(f"Top Matches ({len(ranked)})" )
         if not ranked:
-            st.warning("No facilities meet the trust threshold yet.")
-        for idx, facility in enumerate(ranked[:5], start=1):
-            km = distance_km(origin[0], origin[1], facility.latitude, facility.longitude)
+            st.warning("No facilities meet the trust threshold in this area.")
+        for idx, facility in enumerate(ranked[:10], start=1):
             with st.container(border=True):
                 st.write(f"**{idx}. {facility.facility_name}**")
-                st.write(f"Trust score: {facility.trust_score:.3f} | {km:.1f} km away")
-                st.caption(", ".join(facility.specialties + facility.capabilities))
+                st.write(f"Trust score: {facility.trust_score:.3f}")
+                st.caption(f"{facility.city}, {facility.state}")
+                if facility.specialties:
+                    st.caption(f"Specialties: {facility.specialties}")
                 if facility.last_verified_date:
-                    st.success("Recently verified")
+                    st.success(f"✓ Last verified: {facility.last_verified_date.strftime('%Y-%m-%d')}")

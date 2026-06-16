@@ -6,4 +6,9 @@ command:
   - "8000"
 env:
   - name: HEALTHVERIFY_MODE
-    value: demo
+    value: production
+resources:
+  - name: healthverify_db
+    database:
+      branch: projects/dais2026/branches/production
+      databaseName: databricks_postgres

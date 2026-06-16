@@ -79,3 +79,21 @@ class DemoStore:
 
     def validations(self) -> list[ValidationResult]:
         return list(self._validations)
+
+
+def create_store():
+    """Factory function: returns LakebaseStore in production, DemoStore otherwise."""
+    import os
+    
+    mode = os.environ.get("HEALTHVERIFY_MODE", "demo").lower()
+    
+    if mode == "production":
+        try:
+            from .lakebase_store import LakebaseStore
+            return LakebaseStore.from_app_config()
+        except Exception as e:
+            print(f"⚠ Failed to initialize LakebaseStore: {e}")
+            print("  Falling back to DemoStore")
+            return DemoStore.seeded()
+    else:
+        return DemoStore.seeded()

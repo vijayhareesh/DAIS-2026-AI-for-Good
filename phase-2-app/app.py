@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import streamlit as st
 
-# phase_2_app is now in the same directory as app.py, no sys.path manipulation needed
-
-from phase_2_app.store import DemoStore
+from phase_2_app.store import create_store
 
 
-def get_store() -> DemoStore:
+def get_store():
     if "healthverify_store" not in st.session_state:
-        st.session_state.healthverify_store = DemoStore.seeded()
+        st.session_state.healthverify_store = create_store()
     return st.session_state.healthverify_store
 
 
@@ -21,14 +16,21 @@ st.title("HealthVerify India")
 st.caption("Community-driven healthcare facility validation")
 
 store = get_store()
-heritage = store.get_facility("heritage-hospitals-varanasi")
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Demo Facility", heritage.facility_name)
-col2.metric("Trust Score", f"{heritage.trust_score:.3f}")
-col3.metric("Validations", heritage.verification_count)
-
-st.write(
-    "Use the Volunteer Portal page to validate Heritage Hospitals, then use "
-    "Patient Search to see how the updated trust score changes patient results."
-)
+# Show summary stats
+facilities = store.list_facilities(limit=10)
+if facilities:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Top Facility", facilities[0].facility_name)
+    col2.metric("Trust Score", f"{facilities[0].trust_score:.3f}")
+    col3.metric("Total Loaded", len(facilities))
+    
+    st.info(
+        "✓ Connected to Lakebase with real facility data. "
+        "Use **Volunteer Portal** to validate facilities, then use **Patient Search** "
+        "to see updated trust scores."
+    )
+else:
+    st.warning(
+        "No facilities loaded. Check Lakebase sync status."
+    )
