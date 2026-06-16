@@ -21,6 +21,12 @@ class Facility:
     capabilities: tuple[str, ...]
     verification_count: int = 0
     last_verified_date: datetime | None = None
+    pincode: str = ""
+    official_phone: str = ""
+    email: str = ""
+    official_website: str = ""
+    reliability_tier: str = ""
+    delivery_likelihood: str = ""
 
 
 @dataclass(frozen=True)

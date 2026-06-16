@@ -20,13 +20,19 @@ class DemoStore:
     def get_facility(self, facility_id: str) -> Facility:
         return self._facilities[facility_id]
 
-    def list_facilities(self) -> list[Facility]:
-        return list(self._facilities.values())
+    def list_facilities(self, limit: int | None = None) -> list[Facility]:
+        rows = list(self._facilities.values())
+        return rows[:limit] if limit else rows
 
     def patient_visible(self, facility_id: str) -> bool:
         return self.get_facility(facility_id).trust_score >= PATIENT_TRUST_THRESHOLD
 
-    def search_facilities(self, text: str = "", city: str | None = None) -> list[Facility]:
+    def search_facilities(
+        self,
+        text: str = "",
+        city: str | None = None,
+        limit: int = 50,
+    ) -> list[Facility]:
         needle = text.strip().lower()
         rows = self.list_facilities()
         if city:
@@ -40,7 +46,7 @@ class DemoStore:
                 or needle in facility.state.lower()
                 or needle in facility.unique_id.lower()
             ]
-        return sorted(rows, key=lambda facility: facility.trust_score)
+        return sorted(rows, key=lambda facility: facility.trust_score)[:limit]
 
     def submit_validation(
         self,
@@ -92,6 +98,8 @@ def create_store():
             from .lakebase_store import LakebaseStore
             return LakebaseStore.from_app_config()
         except Exception as e:
+            if os.environ.get("HEALTHVERIFY_ALLOW_DEMO_FALLBACK", "false").lower() != "true":
+                raise
             print(f"⚠ Failed to initialize LakebaseStore: {e}")
             print("  Falling back to DemoStore")
             return DemoStore.seeded()

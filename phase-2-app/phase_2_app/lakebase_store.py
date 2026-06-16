@@ -1,16 +1,53 @@
 from __future__ import annotations
 
 import os
+import json
 from dataclasses import replace
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
 import psycopg
-from databricks.sdk import WorkspaceClient
-
+import requests
 from .models import Facility, ValidationResult
 from .trust import PATIENT_TRUST_THRESHOLD, recalculate_trust_score
+
+
+def _as_tuple(value) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, list):
+        return tuple(str(item) for item in value if item is not None)
+    if isinstance(value, tuple):
+        return tuple(str(item) for item in value if item is not None)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ()
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return (text,)
+        if isinstance(parsed, list):
+            return tuple(str(item) for item in parsed if item is not None)
+        return (str(parsed),)
+    return (str(value),)
+
+
+def _generate_database_credential(endpoint: str) -> str:
+    from databricks.sdk.core import Config
+
+    cfg = Config()
+    headers = cfg.authenticate()
+    headers["Content-Type"] = "application/json"
+    response = requests.post(
+        f"{cfg.host.rstrip('/')}/api/2.0/postgres/credentials",
+        headers=headers,
+        json={"endpoint": endpoint},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()["token"]
 
 
 class LakebaseStore:
@@ -23,19 +60,38 @@ class LakebaseStore:
     @classmethod
     def from_app_config(cls) -> "LakebaseStore":
         """Create store from Databricks App Lakebase configuration."""
-        # Get connection details from environment (set by app.yaml database resource)
-        host = os.environ.get("LAKEBASE_HOST")
-        database = os.environ.get("LAKEBASE_DATABASE", "databricks_postgres")
-        
-        if not host:
-            raise ValueError("LAKEBASE_HOST not configured in app.yaml")
-        
-        # Get OAuth token for Postgres connection
-        w = WorkspaceClient()
-        # For Databricks Apps, the SDK handles OAuth automatically
-        token = w.config.token or w.config.authenticate()
-        
-        conn_string = f"host={host} dbname={database} user={w.config.username} password={token} sslmode=require"
+        # Databricks Apps Lakebase resources inject standard PostgreSQL env vars.
+        # Keep the LAKEBASE_* fallbacks for older local/dev configuration.
+        host = os.environ.get("PGHOST") or os.environ.get("LAKEBASE_HOST")
+        database = (
+            os.environ.get("PGDATABASE")
+            or os.environ.get("LAKEBASE_DATABASE")
+            or "databricks_postgres"
+        )
+        user = os.environ.get("PGUSER") or os.environ.get("LAKEBASE_USER")
+        password = os.environ.get("PGPASSWORD") or os.environ.get("LAKEBASE_PASSWORD")
+        port = os.environ.get("PGPORT", "5432")
+        endpoint = os.environ.get("LAKEBASE_ENDPOINT")
+
+        if not password and endpoint:
+            password = _generate_database_credential(endpoint)
+
+        missing = [
+            name
+            for name, value in {
+                "PGHOST": host,
+                "PGUSER": user,
+                "PGPASSWORD": password,
+            }.items()
+            if not value
+        ]
+        if missing:
+            raise ValueError(f"Lakebase connection environment missing: {', '.join(missing)}")
+
+        conn_string = (
+            f"host={host} port={port} dbname={database} "
+            f"user={user} password={password} sslmode=require"
+        )
         return cls(conn_string)
     
     def _get_conn(self):
@@ -59,12 +115,6 @@ class LakebaseStore:
                         details JSONB,
                         validated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                     );
-                    
-                    CREATE INDEX IF NOT EXISTS idx_validations_facility 
-                    ON public.volunteer_validations(facility_id);
-                    
-                    CREATE INDEX IF NOT EXISTS idx_validations_volunteer 
-                    ON public.volunteer_validations(volunteer_id);
                 """)
                 conn.commit()
     
@@ -90,7 +140,9 @@ class LakebaseStore:
                         total_capability_claims,
                         combined_quality_confidence_score,
                         overall_reliability,
-                        delivery_likelihood
+                        delivery_likelihood,
+                        red_flags,
+                        data_quality_status
                     FROM public.facilities
                     WHERE unique_id = %s
                 """, (facility_id,))
@@ -118,19 +170,23 @@ class LakebaseStore:
                     facility_name=row[1],
                     state=row[2],
                     city=row[3],
-                    pincode=row[4],
                     latitude=row[5],
                     longitude=row[6],
-                    phone_numbers=row[7],
+                    phone_number=row[8] or row[7] or "",
+                    plausibility_status=row[15] or "UNKNOWN",
+                    freshness_status=row[18] or "UNKNOWN",
+                    risk_factors=_as_tuple(row[17]) or tuple(
+                        item for item in (row[15], row[16], row[18]) if item
+                    ),
+                    specialties=_as_tuple(row[11]),
+                    capabilities=_as_tuple(row[12]),
                     official_phone=row[8],
                     email=row[9],
                     official_website=row[10],
-                    specialties=row[11],
-                    capability=row[12],
-                    total_claims=row[13] or 0,
                     trust_score=row[14] or 0.5,  # combined_quality_confidence_score
                     verification_count=validation_count,
                     last_verified_date=last_verified,
+                    pincode=row[4] or "",
                     reliability_tier=row[15],
                     delivery_likelihood=row[16]
                 )
@@ -148,7 +204,13 @@ class LakebaseStore:
                         pincode,
                         latitude,
                         longitude,
-                        combined_quality_confidence_score
+                        combined_quality_confidence_score,
+                        "officialPhone",
+                        specialties,
+                        capability,
+                        overall_reliability,
+                        delivery_likelihood,
+                        data_quality_status
                     FROM public.facilities
                     ORDER BY combined_quality_confidence_score DESC
                     LIMIT %s
@@ -161,10 +223,19 @@ class LakebaseStore:
                         facility_name=row[1],
                         state=row[2],
                         city=row[3],
-                        pincode=row[4],
                         latitude=row[5],
                         longitude=row[6],
-                        trust_score=row[7] or 0.5
+                        phone_number=row[8] or "",
+                        trust_score=row[7] or 0.5,
+                        plausibility_status=row[11] or "UNKNOWN",
+                        freshness_status=row[13] or "UNKNOWN",
+                        risk_factors=tuple(item for item in (row[11], row[12], row[13]) if item),
+                        specialties=_as_tuple(row[9]),
+                        capabilities=_as_tuple(row[10]),
+                        pincode=row[4] or "",
+                        official_phone=row[8] or "",
+                        reliability_tier=row[11] or "",
+                        delivery_likelihood=row[12] or "",
                     ))
                 
                 return facilities
@@ -193,7 +264,12 @@ class LakebaseStore:
                         latitude,
                         longitude,
                         combined_quality_confidence_score,
-                        overall_reliability
+                        "officialPhone",
+                        specialties,
+                        capability,
+                        overall_reliability,
+                        delivery_likelihood,
+                        data_quality_status
                     FROM public.facilities
                     WHERE 1=1
                 """
@@ -225,11 +301,19 @@ class LakebaseStore:
                         facility_name=row[1],
                         state=row[2],
                         city=row[3],
-                        pincode=row[4],
                         latitude=row[5],
                         longitude=row[6],
                         trust_score=row[7] or 0.5,
-                        reliability_tier=row[8]
+                        phone_number=row[8] or "",
+                        plausibility_status=row[11] or "UNKNOWN",
+                        freshness_status=row[13] or "UNKNOWN",
+                        risk_factors=tuple(item for item in (row[11], row[12], row[13]) if item),
+                        specialties=_as_tuple(row[9]),
+                        capabilities=_as_tuple(row[10]),
+                        pincode=row[4] or "",
+                        official_phone=row[8] or "",
+                        reliability_tier=row[11] or "",
+                        delivery_likelihood=row[12] or "",
                     ))
                 
                 return facilities

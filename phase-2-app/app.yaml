@@ -1,12 +1,24 @@
 command:
-  - streamlit
-  - run
-  - app.py
-  - --server.port
-  - "8000"
+  - sh
+  - -c
+  - python -m phase_2_app.healthcheck && streamlit run app.py --server.port ${DATABRICKS_APP_PORT:-8000} --server.address 0.0.0.0
 env:
   - name: HEALTHVERIFY_MODE
     value: production
+  - name: STREAMLIT_SERVER_ENABLE_CORS
+    value: "false"
+  - name: STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION
+    value: "false"
+  - name: LAKEBASE_HOST
+    value: ep-nameless-silence-d84innlp.database.us-east-2.cloud.databricks.com
+  - name: LAKEBASE_ENDPOINT
+    value: projects/dais2026/branches/production/endpoints/primary
+  - name: LAKEBASE_DATABASE
+    value: databricks_postgres
+  - name: LAKEBASE_USER
+    value: 1f6514a9-c662-48a7-9c53-dbcd0f6da4ce
+  - name: HEALTHVERIFY_HEALTHCHECK_WRITE
+    value: "true"
 resources:
   - name: healthverify_db
     database:
