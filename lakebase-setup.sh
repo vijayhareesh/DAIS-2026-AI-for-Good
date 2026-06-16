@@ -10,12 +10,12 @@ echo "========================================================================"
 echo ""
 echo "Prerequisites:"
 echo "  ✓ Lakebase project: projects/dais2026"
-echo "  ✓ Gold table CDF enabled: dais2026.dev_validation.integrated_facility_assessment"
+echo "  ✓ Gold table: dais2026.dev_validation.integrated_facility_assessment"
 echo "  ✓ App code updated for Lakebase"
 echo ""
 echo "This script will:"
 echo "  1. Register Lakebase database as Unity Catalog"
-echo "  2. Create synced table (10,712 facilities)"
+echo "  2. Create synced table (10,712 facilities) using SNAPSHOT sync"
 echo "  3. Grant app permissions"
 echo ""
 read -p "Press Enter to continue..."
@@ -45,13 +45,16 @@ sleep 2
 echo ""
 echo "[2/4] Creating synced table for facilities (this may take 5-10 mins)..."
 echo "------------------------------------------------------------------------"
+echo "Note: Using SNAPSHOT scheduling (full refresh) instead of TRIGGERED (incremental)"
+echo "      to avoid Auto CDF preview channel requirement"
+echo ""
 
 databricks postgres create-synced-table healthverify_lakebase.public.facilities \
   --json '{
     "spec": {
       "source_table_full_name": "dais2026.dev_validation.integrated_facility_assessment",
       "primary_key_columns": ["unique_id"],
-      "scheduling_policy": "TRIGGERED",
+      "scheduling_policy": "SNAPSHOT",
       "branch": "projects/dais2026/branches/production",
       "postgres_database": "databricks_postgres",
       "create_database_objects_if_missing": true,
