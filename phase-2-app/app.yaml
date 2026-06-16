@@ -19,8 +19,16 @@ env:
     value: 1f6514a9-c662-48a7-9c53-dbcd0f6da4ce
   - name: HEALTHVERIFY_HEALTHCHECK_WRITE
     value: "true"
+  - name: HEALTHVERIFY_USE_MODEL_SERVING
+    value: "true"
+  - name: HEALTHVERIFY_SYMPTOM_CLASSIFIER_ENDPOINT
+    value: databricks-meta-llama-3-1-8b-instruct
 resources:
   - name: healthverify_db
     database:
       branch: projects/dais2026/branches/production
       databaseName: databricks_postgres
+  - name: symptom_classifier
+    serving_endpoint:
+      name: databricks-meta-llama-3-1-8b-instruct
+      permission: CAN_QUERY

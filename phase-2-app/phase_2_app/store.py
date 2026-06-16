@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from .demo_data import seeded_facilities
 from .models import Facility, ValidationResult
+from .ranking import rank_volunteer_facilities
 from .trust import PATIENT_TRUST_THRESHOLD, recalculate_trust_score
 
 
@@ -23,6 +24,14 @@ class DemoStore:
     def list_facilities(self, limit: int | None = None) -> list[Facility]:
         rows = list(self._facilities.values())
         return rows[:limit] if limit else rows
+
+    def list_cities(self, limit: int = 500) -> list[str]:
+        cities = {
+            facility.city
+            for facility in self._facilities.values()
+            if facility.city and facility.trust_score >= PATIENT_TRUST_THRESHOLD
+        }
+        return sorted(cities)[:limit]
 
     def patient_visible(self, facility_id: str) -> bool:
         return self.get_facility(facility_id).trust_score >= PATIENT_TRUST_THRESHOLD
@@ -47,6 +56,20 @@ class DemoStore:
                 or needle in facility.unique_id.lower()
             ]
         return sorted(rows, key=lambda facility: facility.trust_score)[:limit]
+
+    def volunteer_queue(self, text: str = "", limit: int = 50) -> list[Facility]:
+        needle = text.strip().lower()
+        rows = self.list_facilities()
+        if needle:
+            rows = [
+                facility
+                for facility in rows
+                if needle in facility.facility_name.lower()
+                or needle in facility.city.lower()
+                or needle in facility.state.lower()
+                or needle in facility.unique_id.lower()
+            ]
+        return rank_volunteer_facilities(rows)[:limit]
 
     def submit_validation(
         self,

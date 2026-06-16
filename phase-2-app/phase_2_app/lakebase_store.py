@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import re
 from dataclasses import replace
 from datetime import datetime
 from typing import Optional
@@ -14,12 +15,30 @@ from .trust import PATIENT_TRUST_THRESHOLD, recalculate_trust_score
 
 
 def _as_tuple(value) -> tuple[str, ...]:
+    def dedupe_key(item: str) -> str:
+        spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", item)
+        return re.sub(r"[^a-z0-9]+", "", spaced.lower())
+
+    def dedupe(items) -> tuple[str, ...]:
+        seen: set[str] = set()
+        values: list[str] = []
+        for item in items:
+            if item is None:
+                continue
+            text = str(item).strip()
+            key = dedupe_key(text)
+            if not text or not key or key in seen:
+                continue
+            seen.add(key)
+            values.append(text)
+        return tuple(values)
+
     if value is None:
         return ()
     if isinstance(value, list):
-        return tuple(str(item) for item in value if item is not None)
+        return dedupe(value)
     if isinstance(value, tuple):
-        return tuple(str(item) for item in value if item is not None)
+        return dedupe(value)
     if isinstance(value, str):
         text = value.strip()
         if not text:
@@ -29,7 +48,7 @@ def _as_tuple(value) -> tuple[str, ...]:
         except json.JSONDecodeError:
             return (text,)
         if isinstance(parsed, list):
-            return tuple(str(item) for item in parsed if item is not None)
+            return dedupe(parsed)
         return (str(parsed),)
     return (str(value),)
 
@@ -48,6 +67,21 @@ def _generate_database_credential(endpoint: str) -> str:
     )
     response.raise_for_status()
     return response.json()["token"]
+
+
+def _effective_trust_score_sql(alias: str = "f") -> str:
+    return f"""
+        COALESCE(
+            (
+                SELECT vv.new_trust_score
+                FROM public.volunteer_validations vv
+                WHERE vv.facility_id = {alias}.unique_id
+                ORDER BY vv.validated_at DESC
+                LIMIT 1
+            ),
+            {alias}.combined_quality_confidence_score
+        )
+    """
 
 
 class LakebaseStore:
@@ -124,27 +158,27 @@ class LakebaseStore:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT 
-                        unique_id,
-                        facility_name,
-                        state,
-                        city,
-                        pincode,
-                        latitude,
-                        longitude,
-                        phone_numbers,
-                        "officialPhone",
-                        email,
-                        "officialWebsite",
-                        specialties,
-                        capability,
-                        total_capability_claims,
-                        combined_quality_confidence_score,
-                        overall_reliability,
-                        delivery_likelihood,
-                        red_flags,
-                        data_quality_status
-                    FROM public.facilities
-                    WHERE unique_id = %s
+                        f.unique_id,
+                        f.facility_name,
+                        f.state,
+                        f.city,
+                        f.pincode,
+                        f.latitude,
+                        f.longitude,
+                        f.phone_numbers,
+                        f."officialPhone",
+                        f.email,
+                        f."officialWebsite",
+                        f.specialties,
+                        f.capability,
+                        f.total_capability_claims,
+                        """ + _effective_trust_score_sql("f") + """,
+                        f.overall_reliability,
+                        f.delivery_likelihood,
+                        f.red_flags,
+                        f.data_quality_status
+                    FROM public.facilities f
+                    WHERE f.unique_id = %s
                 """, (facility_id,))
                 row = cur.fetchone()
                 
@@ -197,22 +231,22 @@ class LakebaseStore:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT 
-                        unique_id,
-                        facility_name,
-                        state,
-                        city,
-                        pincode,
-                        latitude,
-                        longitude,
-                        combined_quality_confidence_score,
-                        "officialPhone",
-                        specialties,
-                        capability,
-                        overall_reliability,
-                        delivery_likelihood,
-                        data_quality_status
-                    FROM public.facilities
-                    ORDER BY combined_quality_confidence_score DESC
+                        f.unique_id,
+                        f.facility_name,
+                        f.state,
+                        f.city,
+                        f.pincode,
+                        f.latitude,
+                        f.longitude,
+                        """ + _effective_trust_score_sql("f") + """ AS effective_trust_score,
+                        f."officialPhone",
+                        f.specialties,
+                        f.capability,
+                        f.overall_reliability,
+                        f.delivery_likelihood,
+                        f.data_quality_status
+                    FROM public.facilities f
+                    ORDER BY effective_trust_score DESC
                     LIMIT %s
                 """, (limit,))
                 
@@ -239,6 +273,22 @@ class LakebaseStore:
                     ))
                 
                 return facilities
+
+    def list_cities(self, limit: int = 500) -> list[str]:
+        """List patient-visible cities for the search dropdown."""
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT f.city
+                    FROM public.facilities f
+                    WHERE f.city IS NOT NULL
+                      AND BTRIM(f.city) <> ''
+                      AND """ + _effective_trust_score_sql("f") + """ >= %s
+                    GROUP BY f.city
+                    ORDER BY COUNT(*) DESC, f.city ASC
+                    LIMIT %s
+                """, (PATIENT_TRUST_THRESHOLD, limit))
+                return [row[0] for row in cur.fetchall()]
     
     def patient_visible(self, facility_id: str) -> bool:
         """Check if facility meets patient visibility threshold."""
@@ -256,40 +306,40 @@ class LakebaseStore:
             with conn.cursor() as cur:
                 query = """
                     SELECT 
-                        unique_id,
-                        facility_name,
-                        state,
-                        city,
-                        pincode,
-                        latitude,
-                        longitude,
-                        combined_quality_confidence_score,
-                        "officialPhone",
-                        specialties,
-                        capability,
-                        overall_reliability,
-                        delivery_likelihood,
-                        data_quality_status
-                    FROM public.facilities
+                        f.unique_id,
+                        f.facility_name,
+                        f.state,
+                        f.city,
+                        f.pincode,
+                        f.latitude,
+                        f.longitude,
+                        """ + _effective_trust_score_sql("f") + """ AS effective_trust_score,
+                        f."officialPhone",
+                        f.specialties,
+                        f.capability,
+                        f.overall_reliability,
+                        f.delivery_likelihood,
+                        f.data_quality_status
+                    FROM public.facilities f
                     WHERE 1=1
                 """
                 params = []
                 
                 if city:
-                    query += " AND LOWER(city) = LOWER(%s)"
+                    query += " AND LOWER(f.city) = LOWER(%s)"
                     params.append(city)
                 
                 if text.strip():
                     query += """ AND (
-                        LOWER(facility_name) LIKE LOWER(%s) OR
-                        LOWER(city) LIKE LOWER(%s) OR
-                        LOWER(state) LIKE LOWER(%s) OR
-                        LOWER(unique_id) LIKE LOWER(%s)
+                        LOWER(f.facility_name) LIKE LOWER(%s) OR
+                        LOWER(f.city) LIKE LOWER(%s) OR
+                        LOWER(f.state) LIKE LOWER(%s) OR
+                        LOWER(f.unique_id) LIKE LOWER(%s)
                     )"""
                     search_pattern = f"%{text.strip()}%"
                     params.extend([search_pattern] * 4)
                 
-                query += " ORDER BY combined_quality_confidence_score DESC LIMIT %s"
+                query += " ORDER BY effective_trust_score DESC LIMIT %s"
                 params.append(limit)
                 
                 cur.execute(query, params)
@@ -316,6 +366,80 @@ class LakebaseStore:
                         delivery_likelihood=row[12] or "",
                     ))
                 
+                return facilities
+
+    def volunteer_queue(self, text: str = "", limit: int = 50) -> list[Facility]:
+        """List facilities that most need volunteer verification."""
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                query = """
+                    SELECT 
+                        f.unique_id,
+                        f.facility_name,
+                        f.state,
+                        f.city,
+                        f.pincode,
+                        f.latitude,
+                        f.longitude,
+                        """ + _effective_trust_score_sql("f") + """ AS effective_trust_score,
+                        f."officialPhone",
+                        f.specialties,
+                        f.capability,
+                        f.overall_reliability,
+                        f.delivery_likelihood,
+                        f.data_quality_status
+                    FROM public.facilities f
+                    WHERE 1=1
+                """
+                params = []
+
+                if text.strip():
+                    query += """ AND (
+                        LOWER(f.facility_name) LIKE LOWER(%s) OR
+                        LOWER(f.city) LIKE LOWER(%s) OR
+                        LOWER(f.state) LIKE LOWER(%s) OR
+                        LOWER(f.unique_id) LIKE LOWER(%s)
+                    )"""
+                    search_pattern = f"%{text.strip()}%"
+                    params.extend([search_pattern] * 4)
+
+                query += """
+                    ORDER BY
+                        CASE
+                            WHEN """ + _effective_trust_score_sql("f") + """ < 0.70 THEN 0
+                            WHEN """ + _effective_trust_score_sql("f") + """ < 0.80 THEN 1
+                            ELSE 2
+                        END ASC,
+                        """ + _effective_trust_score_sql("f") + """ ASC NULLS FIRST,
+                        f.facility_name ASC
+                    LIMIT %s
+                """
+                params.append(limit)
+
+                cur.execute(query, params)
+
+                facilities = []
+                for row in cur.fetchall():
+                    facilities.append(Facility(
+                        unique_id=row[0],
+                        facility_name=row[1],
+                        state=row[2],
+                        city=row[3],
+                        latitude=row[5],
+                        longitude=row[6],
+                        trust_score=row[7] or 0.5,
+                        phone_number=row[8] or "",
+                        plausibility_status=row[11] or "UNKNOWN",
+                        freshness_status=row[13] or "UNKNOWN",
+                        risk_factors=tuple(item for item in (row[11], row[12], row[13]) if item),
+                        specialties=_as_tuple(row[9]),
+                        capabilities=_as_tuple(row[10]),
+                        pincode=row[4] or "",
+                        official_phone=row[8] or "",
+                        reliability_tier=row[11] or "",
+                        delivery_likelihood=row[12] or "",
+                    ))
+
                 return facilities
     
     def submit_validation(

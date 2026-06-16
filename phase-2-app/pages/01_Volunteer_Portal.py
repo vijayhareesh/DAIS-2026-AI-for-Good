@@ -33,7 +33,7 @@ st.title("Volunteer Verification Portal")
 
 store = get_store()
 query = st.text_input("Search by facility, city, state, or ID", value="")
-rows = store.search_facilities(query, limit=20)
+rows = store.volunteer_queue(query, limit=20)
 
 left, right = st.columns([0.48, 0.52])
 
@@ -50,7 +50,10 @@ with left:
                 st.session_state.selected_facility_id = facility.unique_id
 
 if rows:
-    selected_id = st.session_state.get("selected_facility_id", rows[0].unique_id)
+    row_ids = {facility.unique_id for facility in rows}
+    if st.session_state.get("selected_facility_id") not in row_ids:
+        st.session_state.selected_facility_id = rows[0].unique_id
+    selected_id = st.session_state.selected_facility_id
     facility = store.get_facility(selected_id)
     
     if facility:
