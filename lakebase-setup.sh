@@ -25,18 +25,22 @@ echo ""
 echo "[1/4] Registering Lakebase database as Unity Catalog..."
 echo "------------------------------------------------------------------------"
 
-databricks postgres create-catalog healthverify_lakebase \
+if CATALOG_OUTPUT=$(databricks postgres create-catalog healthverify_lakebase \
   --json '{
     "spec": {
       "postgres_database": "databricks_postgres",
       "branch": "projects/dais2026/branches/production"
     }
-  }' --output JSON
-
-if [ $? -eq 0 ]; then
+  }' --output JSON 2>&1); then
+    echo "$CATALOG_OUTPUT"
     echo "✓ Catalog 'healthverify_lakebase' registered"
 else
-    echo "⚠ If catalog already exists, this is OK - continuing..."
+    if [[ "$CATALOG_OUTPUT" == *"already exists"* ]]; then
+        echo "⚠ Catalog already exists - continuing..."
+    else
+        echo "$CATALOG_OUTPUT"
+        exit 1
+    fi
 fi
 
 sleep 2
@@ -49,7 +53,7 @@ echo "Note: Using SNAPSHOT scheduling (full refresh) instead of TRIGGERED (incre
 echo "      to avoid Auto CDF preview channel requirement"
 echo ""
 
-databricks postgres create-synced-table healthverify_lakebase.public.facilities \
+if SYNCED_TABLE_OUTPUT=$(databricks postgres create-synced-table healthverify_lakebase.public.facilities \
   --json '{
     "spec": {
       "source_table_full_name": "dais2026.dev_validation.integrated_facility_assessment",
@@ -63,12 +67,20 @@ databricks postgres create-synced-table healthverify_lakebase.public.facilities 
         "storage_schema": "default"
       }
     }
-  }' --output JSON
-
-if [ $? -eq 0 ]; then
-    echo "✓ Synced table created - syncing 10,712 facilities from gold layer"
+  }' --output JSON 2>&1); then
+    echo "$SYNCED_TABLE_OUTPUT"
+    if [[ "$SYNCED_TABLE_OUTPUT" == *"FAILED"* ]]; then
+        echo "⚠ Synced table resource exists, but sync is currently failed - checking status..."
+    else
+        echo "✓ Synced table created - syncing 10,712 facilities from gold layer"
+    fi
 else
-    echo "⚠ If table already exists, this is OK - continuing..."
+    if [[ "$SYNCED_TABLE_OUTPUT" == *"already exists"* ]]; then
+        echo "⚠ Synced table already exists - continuing..."
+    else
+        echo "$SYNCED_TABLE_OUTPUT"
+        exit 1
+    fi
 fi
 
 # Step 3: Wait for sync to complete
@@ -79,14 +91,33 @@ echo "Waiting for initial sync to complete (this takes 5-10 minutes)..."
 echo ""
 
 for i in {1..30}; do
-    STATUS=$(databricks postgres get-synced-table "synced_tables/healthverify_lakebase.public.facilities" \
-      --output JSON 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('status', {}).get('state', 'UNKNOWN'))" || echo "PENDING")
+    SYNCED_TABLE_JSON=$(databricks postgres get-synced-table "synced_tables/healthverify_lakebase.public.facilities" \
+      --output JSON 2>/dev/null || true)
+
+    if [ -z "$SYNCED_TABLE_JSON" ]; then
+        STATUS="PENDING"
+        PIPELINE_ID="UNKNOWN"
+        STATUS_MESSAGE=""
+    else
+        STATUS=$(printf "%s" "$SYNCED_TABLE_JSON" | python3 -c "import json,sys; status=json.load(sys.stdin).get('status', {}); print(status.get('state') or status.get('detailed_state') or 'UNKNOWN')")
+        PIPELINE_ID=$(printf "%s" "$SYNCED_TABLE_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status', {}).get('pipeline_id', 'UNKNOWN'))")
+        STATUS_MESSAGE=$(printf "%s" "$SYNCED_TABLE_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status', {}).get('message', ''))")
+    fi
     
     echo "  [$i/30] Sync status: $STATUS"
     
-    if [ "$STATUS" = "ONLINE" ]; then
+    if [[ "$STATUS" == "ONLINE" || "$STATUS" == *"_ONLINE" ]]; then
         echo "✓ Sync completed! Facilities are available in Lakebase"
         break
+    fi
+
+    if [[ "$STATUS" == *"FAILED"* ]]; then
+        if [ -n "$STATUS_MESSAGE" ]; then
+            echo "  $STATUS_MESSAGE"
+        fi
+        echo "✗ Sync failed. Inspect the managed Lakeflow pipeline events with:"
+        echo "  databricks pipelines list-pipeline-events $PIPELINE_ID"
+        exit 1
     fi
     
     if [ $i -eq 30 ]; then
