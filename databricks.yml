@@ -1,0 +1,96 @@
+bundle:
+  name: healthverify-india
+
+variables:
+  catalog:
+    default: dais2026
+  validation_schema:
+    default: validation
+workspace:
+  host: https://dbc-66fc0519-a852.cloud.databricks.com
+
+sync:
+  include:
+    - phase-1-pipeline/src/**
+    - phase-2-app/**
+    - phase_2_app/**
+    - jobs/**
+    - lakebase/**
+    - scripts/**
+    - README.md
+    - pyproject.toml
+
+resources:
+  pipelines:
+    facility_validation_pipeline:
+      id: 27fea50d-7b95-4540-b673-a0c8c92fe08d
+      name: facility_validation_framework
+      catalog: ${var.catalog}
+      schema: ${var.validation_schema}
+      channel: CURRENT
+      photon: true
+      serverless: true
+      development: false
+      libraries:
+        - file:
+            path: phase-1-pipeline/src/facility_validation_framework.sql
+      configuration:
+        spark.databricks.delta.properties.defaults.enableChangeDataFeed: "true"
+
+  apps:
+    healthverify_app:
+      name: healthverify-india
+      description: Community-driven healthcare facility validation for India.
+      source_code_path: phase-2-app
+      config:
+        command:
+          - streamlit
+          - run
+          - app.py
+          - --server.port
+          - "8000"
+        env:
+          - name: HEALTHVERIFY_MODE
+            value: demo
+          - name: HEALTHVERIFY_CATALOG
+            value: ${var.catalog}
+      permissions:
+        - user_name: richthai92@gmail.com
+          level: CAN_MANAGE
+
+  jobs:
+    nightly_sync:
+      name: HealthVerify - Nightly UC to Lakebase Sync
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: America/Los_Angeles
+        pause_status: PAUSED
+      tasks:
+        - task_key: sync_facilities
+          spark_python_task:
+            python_file: jobs/sync_uc_to_lakebase.py
+            source: WORKSPACE
+          environment_key: sync_env
+      environments:
+        - environment_key: sync_env
+          spec:
+            client: "2"
+            dependencies:
+              - psycopg2-binary>=2.9
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      validation_schema: dev_validation
+    workspace:
+      host: https://dbc-66fc0519-a852.cloud.databricks.com
+
+  prod:
+    mode: production
+    variables:
+      validation_schema: validation
+    workspace:
+      host: https://dbc-66fc0519-a852.cloud.databricks.com
+      root_path: /Workspace/Users/richthai92@gmail.com/.bundle/${bundle.name}/${bundle.target}

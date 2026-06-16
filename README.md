@@ -50,6 +50,16 @@ Databricks App with dual interfaces:
 2. **Once pipeline completes:** [App Implementation](./phase-2-app/)
 3. **Review design:** [HealthVerify India Design](./docs/design/2026-06-15-healthverify-india-design.md)
 
+### Local Verification
+
+```bash
+python3 -m unittest discover -s tests -v
+PYTHONPYCACHEPREFIX=/private/tmp/healthverify_pycache python3 -m compileall phase_2_app phase-2-app jobs scripts
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle validate -t dev
+```
+
+The `DATABRICKS_AUTH_STORAGE=plaintext` prefix is currently required for this workspace because the local Databricks CLI reported older secure-cache credentials for management APIs.
+
 ---
 
 ## Data Sources
@@ -75,14 +85,23 @@ Known data quality issues and remediation strategies:
 ### Phase 1: Pipeline
 - [x] Architecture complete
 - [x] Implementation plans complete (Bronze, Silver, Gold layers + Deployment)
-- [ ] Pipeline implementation
+- [x] Pipeline source implementation (`phase-1-pipeline/src/facility_validation_framework.sql`)
+- [x] Pipeline quality checks (`phase-1-pipeline/src/quality_checks.sql`)
 - [ ] Pipeline deployed to production
 
 ### Phase 2: App
 - [x] Design complete
 - [x] Component specifications complete
-- [ ] App implementation
+- [x] Deterministic demo agents and trust-score core (`phase_2_app/`)
+- [x] Streamlit Databricks App scaffold (`phase-2-app/`)
+- [x] Lakebase schema and sync scripts (`lakebase/`, `jobs/`, `scripts/`)
 - [ ] Demo preparation
+
+### Phase 3: Deployment Assets
+- [x] Databricks Asset Bundle (`databricks.yml`)
+- [x] Dev bundle validation
+- [ ] Dev deployment
+- [ ] Production deployment
 
 ---
 
@@ -107,13 +126,91 @@ Known data quality issues and remediation strategies:
 ```
 DAIS-2026-AI-for-Good/
 ├── README.md (you are here)
+├── databricks.yml          # Databricks Asset Bundle
 ├── docs/
 │   ├── data-quality/       # Cross-phase data quality findings
 │   ├── design/             # Overall system design
 │   └── specs/              # Implementation specifications
+├── jobs/                   # UC to Lakebase sync job
+├── lakebase/               # Lakebase/Postgres schema
 ├── phase-1-pipeline/       # Batch pipeline for initial scoring
-└── phase-2-app/            # Live app for ongoing validation
+├── phase-2-app/            # Live app for ongoing validation
+├── phase_2_app/            # Testable app/agent core
+├── scripts/                # Demo data seed helpers
+└── tests/                  # Local deterministic tests
 ```
+
+---
+
+## Databricks Deployment
+
+### Prerequisites
+
+* Databricks CLI authenticated as `richthai92@gmail.com`
+* Workspace: `https://dbc-66fc0519-a852.cloud.databricks.com`
+* Catalog/schema access to `dais2026.raw` and `dais2026.validation`
+* Existing Lakeflow pipeline ID: `27fea50d-7b95-4540-b673-a0c8c92fe08d`
+* Lakebase connection values available as job/app secrets or environment variables:
+  * `LAKEBASE_JDBC_URL`
+  * `LAKEBASE_USER`
+  * `LAKEBASE_PASSWORD`
+
+### Validate And Deploy
+
+```bash
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle validate -t dev
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle deploy -t dev
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle run facility_validation_pipeline -t dev
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle run nightly_sync -t dev
+```
+
+Production deployment:
+
+```bash
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle validate -t prod
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle deploy -t prod
+```
+
+### Pipeline Verification
+
+After the pipeline run completes, execute the checks in:
+
+```text
+phase-1-pipeline/src/quality_checks.sql
+```
+
+Required evidence before demo:
+
+* `validation.integrated_facility_assessment` has roughly 10K facilities
+* No null final confidence, data quality, or combined scores
+* Confidence tier distribution is within the expected range
+* Heritage Hospitals demo data is present or seeded into Lakebase
+
+### Lakebase Demo Seed
+
+Apply schema first:
+
+```bash
+psql "$LAKEBASE_DATABASE_URL" -f lakebase/schema.sql
+```
+
+Seed Heritage Hospitals:
+
+```bash
+LAKEBASE_DATABASE_URL="$LAKEBASE_DATABASE_URL" python3 scripts/seed_demo_data.py
+```
+
+Without `LAKEBASE_DATABASE_URL`, the seed script prints the SQL and parameters for manual application.
+
+### Rollback
+
+```bash
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle deployment bind facility_validation_pipeline 27fea50d-7b95-4540-b673-a0c8c92fe08d
+git checkout main -- databricks.yml phase-1-pipeline/src phase-2-app phase_2_app jobs lakebase scripts
+DATABRICKS_AUTH_STORAGE=plaintext databricks bundle deploy -t dev
+```
+
+For app-only rollback, redeploy the previous Git commit with `databricks bundle deploy -t dev` after checking out that commit.
 
 ---
 

@@ -1,0 +1,8 @@
+[project]
+name = "healthverify-india"
+version = "0.1.0"
+description = "HealthVerify India demo system for healthcare facility validation."
+requires-python = ">=3.9"
+
+[tool.unittest]
+start-directory = "tests"
