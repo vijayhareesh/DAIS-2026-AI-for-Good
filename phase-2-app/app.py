@@ -5,9 +5,7 @@ from pathlib import Path
 
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# phase_2_app is now in the same directory as app.py, no sys.path manipulation needed
 
 from phase_2_app.store import DemoStore
 
