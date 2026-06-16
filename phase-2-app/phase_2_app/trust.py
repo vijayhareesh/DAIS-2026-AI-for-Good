@@ -14,7 +14,7 @@ def recalculate_trust_score(
         return round(old_score, 3)
 
     verification_ratio = claims_verified / claims_checked
-    evidence_delta = max(0.0, verification_ratio - 0.5) * 0.15545
+    evidence_delta = (verification_ratio - 0.5) * 0.15545
     repeat_validator_bonus = min(verification_count, 3) * 0.004
-    new_score = min(0.95, old_score + evidence_delta + repeat_validator_bonus)
+    new_score = max(0.05, min(0.95, old_score + evidence_delta + repeat_validator_bonus))
     return round(new_score, 3)

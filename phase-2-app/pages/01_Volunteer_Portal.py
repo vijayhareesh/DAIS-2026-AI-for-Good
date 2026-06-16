@@ -11,8 +11,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from phase_2_app.agents import generate_verification_script
+from phase_2_app.app_style import apply_app_style
 from phase_2_app.store import create_store
 from phase_2_app.volunteer_ui import (
+    compact_trust_html,
     priority_badge_html,
     priority_label,
     verification_checkbox_key,
@@ -26,6 +28,7 @@ def get_store():
 
 
 st.set_page_config(page_title="Volunteer Portal", layout="wide")
+apply_app_style()
 st.title("Volunteer Verification Portal")
 
 store = get_store()
@@ -38,13 +41,13 @@ with left:
     st.subheader(f"Verification Queue ({len(rows)} facilities)")
     for facility in rows:
         with st.container(border=True):
-            cols = st.columns([0.18, 0.52, 0.15, 0.15])
+            cols = st.columns([0.18, 0.48, 0.18, 0.16])
             priority = priority_label(facility.trust_score)
             cols[0].markdown(priority_badge_html(priority), unsafe_allow_html=True)
             cols[1].write(f"**{facility.facility_name}**")
             cols[1].caption(f"{facility.city}, {facility.state}")
-            cols[2].metric("Trust", f"{facility.trust_score:.3f}")
-            if cols[3].button("Verify", key=f"verify_{facility.unique_id}"):
+            cols[2].markdown(compact_trust_html(facility.trust_score), unsafe_allow_html=True)
+            if cols[3].button("Verify", key=f"verify_{facility.unique_id}", use_container_width=True):
                 st.session_state.selected_facility_id = facility.unique_id
 
 if rows:

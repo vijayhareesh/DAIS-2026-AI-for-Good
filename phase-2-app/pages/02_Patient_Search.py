@@ -13,6 +13,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from phase_2_app.agents import match_symptoms
+from phase_2_app.app_style import apply_app_style
+from phase_2_app.patient_ui import result_heading
 from phase_2_app.ranking import rank_patient_facilities
 from phase_2_app.store import create_store
 from phase_2_app.trust import PATIENT_TRUST_THRESHOLD
@@ -90,6 +92,7 @@ def has_coordinates(facility) -> bool:
 
 
 st.set_page_config(page_title="Patient Search", layout="wide")
+apply_app_style()
 st.title("Patient Search")
 
 store = get_store()
@@ -146,7 +149,8 @@ if st.session_state.get("patient_search_submitted", True):
             key="patient_selected_facility_id",
         )
 
-    map_col, results_col = st.columns([0.6, 0.4])
+    visible_results = min(len(ranked), 10)
+    map_col, results_col = st.columns([0.55, 0.45])
     with map_col:
         mapped_facilities = [facility for facility in ranked[:20] if has_coordinates(facility)]
         selected_facility = next(
@@ -184,14 +188,17 @@ if st.session_state.get("patient_search_submitted", True):
             st.info("Map requires valid facility coordinates. Search for facilities with location data.")
 
     with results_col:
-        st.subheader(f"Top Matches ({len(ranked)})" )
+        st.subheader(result_heading(total_count=len(ranked), visible_count=10))
+        if len(ranked) > visible_results:
+            st.caption(f"Showing the first {visible_results} ranked facilities. Use city or symptoms to narrow results.")
         if not ranked:
             st.warning("No facilities meet the trust threshold in this area.")
         for idx, facility in enumerate(ranked[:10], start=1):
             with st.container(border=True):
                 st.write(f"**{idx}. {facility.facility_name}**")
-                st.write(f"Trust score: {facility.trust_score:.3f}")
-                st.write(f"Match score: {facility.match_score:.2f}")
+                score_cols = st.columns(2)
+                score_cols[0].caption(f"Trust score: {facility.trust_score:.3f}")
+                score_cols[1].caption(f"Match score: {facility.match_score:.2f}")
                 st.caption(f"{facility.city}, {facility.state}")
                 if facility.unique_id == selected_id:
                     st.success("Highlighted on map")

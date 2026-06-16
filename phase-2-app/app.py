@@ -4,6 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from phase_2_app.app_style import apply_app_style
 from phase_2_app.home_content import project_summary
 
 
@@ -11,6 +12,7 @@ PROJECT_DESCRIPTION_PATH = Path(__file__).resolve().parent / "PROJECT_DESCRIPTIO
 
 
 st.set_page_config(page_title="Home", layout="wide")
+apply_app_style()
 
 summary = project_summary(PROJECT_DESCRIPTION_PATH)
 

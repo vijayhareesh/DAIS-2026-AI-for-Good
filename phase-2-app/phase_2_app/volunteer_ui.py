@@ -26,5 +26,12 @@ def priority_badge_html(label: str) -> str:
     )
 
 
+def compact_trust_html(trust_score: float) -> str:
+    return (
+        "<div style='font-size:0.78rem; color:#475569; line-height:1.05;'>Trust</div>"
+        f"<div style='font-size:1rem; font-weight:700; overflow-wrap:anywhere;'>{trust_score:.3f}</div>"
+    )
+
+
 def verification_checkbox_key(facility_id: str, index: int) -> str:
     return f"q_{facility_id}_{index}"
