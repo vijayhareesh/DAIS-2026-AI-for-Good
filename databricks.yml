@@ -46,7 +46,7 @@ resources:
         command:
           - sh
           - -c
-          - python -m phase_2_app.healthcheck && streamlit run app.py --server.port ${DATABRICKS_APP_PORT:-8000} --server.address 0.0.0.0
+          - python -m phase_2_app.healthcheck && streamlit run Home.py --server.port ${DATABRICKS_APP_PORT:-8000} --server.address 0.0.0.0
         env:
           - name: HEALTHVERIFY_MODE
             value: production

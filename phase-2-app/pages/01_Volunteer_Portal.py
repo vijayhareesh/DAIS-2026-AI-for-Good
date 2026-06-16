@@ -12,20 +12,17 @@ if str(ROOT) not in sys.path:
 
 from phase_2_app.agents import generate_verification_script
 from phase_2_app.store import create_store
+from phase_2_app.volunteer_ui import (
+    priority_badge_html,
+    priority_label,
+    verification_checkbox_key,
+)
 
 
 def get_store():
     if "healthverify_store" not in st.session_state:
         st.session_state.healthverify_store = create_store()
     return st.session_state.healthverify_store
-
-
-def priority_label(facility) -> str:
-    if facility.trust_score < 0.70:
-        return "HIGH"
-    if facility.trust_score < 0.80:
-        return "MEDIUM"
-    return "LOW"
 
 
 st.set_page_config(page_title="Volunteer Portal", layout="wide")
@@ -42,7 +39,8 @@ with left:
     for facility in rows:
         with st.container(border=True):
             cols = st.columns([0.18, 0.52, 0.15, 0.15])
-            cols[0].write(priority_label(facility))
+            priority = priority_label(facility.trust_score)
+            cols[0].markdown(priority_badge_html(priority), unsafe_allow_html=True)
             cols[1].write(f"**{facility.facility_name}**")
             cols[1].caption(f"{facility.city}, {facility.state}")
             cols[2].metric("Trust", f"{facility.trust_score:.3f}")
@@ -60,22 +58,23 @@ if rows:
         script = generate_verification_script(facility)
 
         with right:
-            st.subheader(f"Verify: {facility.facility_name}")
+            st.subheader(facility.facility_name)
             st.write(f"{facility.city}, {facility.state}")
             if facility.official_phone:
                 st.write(f"Phone: {facility.official_phone}")
             st.progress(min(facility.trust_score, 1.0), text=f"Current trust score {facility.trust_score:.3f}")
 
-            st.markdown("**Generated verification script**")
-            for idx, item in enumerate(script, start=1):
-                st.write(f"{idx}. {item['prompt']}")
-
-            st.markdown("**Validation form**")
+            st.markdown("**Verification checklist**")
             responses = {}
             for idx, item in enumerate(script, start=1):
-                responses[item["prompt"]] = st.checkbox(item["prompt"], value=idx <= 13, key=f"q_{idx}")
+                prompt = item["prompt"]
+                responses[prompt] = st.checkbox(
+                    f"{idx}. {prompt}",
+                    value=False,
+                    key=verification_checkbox_key(facility.unique_id, idx),
+                )
 
-            notes = st.text_area("Volunteer notes", value="")
+            notes = st.text_area("Volunteer notes", value="", key=f"notes_{facility.unique_id}")
             if st.button("Submit Validation", type="primary"):
                 checked = len(script)
                 verified = sum(1 for value in responses.values() if value)
